@@ -1,5 +1,5 @@
 import { db } from '@infrastructure/database/connection';
-import { users, stores } from '@infrastructure/database/schema';
+import { users } from '@infrastructure/database/schema';
 import { eq } from 'drizzle-orm';
 import { googleOAuthService } from '@infrastructure/auth/google-oauth.service';
 import { jwtService } from '@infrastructure/auth/jwt.service';
@@ -14,6 +14,12 @@ import type { DeviceInfo } from '@/types/common';
 /**
  * Authentication Service
  * Handles user authentication, registration, and session management
+ *
+ * Business Rules:
+ * - First user to register becomes OWNER
+ * - Subsequent users have no role until explicitly promoted to STAFF by owner
+ * - Staff promotion is handled separately by owners
+ * - Stores are not created automatically during registration
  */
 export class AuthService {
   /**
@@ -61,11 +67,7 @@ export class AuthService {
 
       // Create user if doesn't exist
       if (!user) {
-        // First user becomes owner, rest are staff
-        const existingUsers = await db.select().from(users).limit(1);
-        const role = existingUsers.length === 0 ? USER_ROLES.OWNER : USER_ROLES.STAFF;
-
-        // Use transaction for user + store creation
+        // Create user
         user = await db.transaction(async (tx) => {
           const [newUserResult] = await tx
             .insert(users)
@@ -74,22 +76,11 @@ export class AuthService {
               name: googleUser.name,
               googleId: googleUser.id,
               avatarUrl: googleUser.picture,
-              role,
+              role: 'owner',
             })
             .returning();
 
           isNewUser = true;
-
-          // Create store for owner
-          if (role === USER_ROLES.OWNER) {
-            await tx.insert(stores).values({
-              ownerId: newUserResult!.id,
-              name: `${newUserResult!.name}'s Store`,
-              description: 'My online store',
-            });
-
-            log.info('Store created for new owner', { userId: newUserResult!.id });
-          }
 
           return newUserResult!;
         });
@@ -108,7 +99,6 @@ export class AuthService {
         log.info('New user registered', {
           userId: user.id,
           email: user.email,
-          role,
         });
       } else {
         // Update avatar if changed
