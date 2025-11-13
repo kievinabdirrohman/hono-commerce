@@ -92,8 +92,10 @@ app.get('/', (c) => {
 
 // API Routes
 import authRoutes from '@presentation/routes/auth.routes';
+import storeRoutes from '@presentation/routes/store.routes';
 
 app.route('/api/auth', authRoutes);
+app.route('/api/stores', storeRoutes);
 
 // 404 handler
 app.notFound((c) => {
